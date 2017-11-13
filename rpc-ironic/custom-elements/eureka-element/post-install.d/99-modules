@@ -1,0 +1,21 @@
+#!/bin/bash
+
+set -x
+
+
+# If the file /etc/sysconfig/network exists, set some options to make dhcp happy happy happy
+if [ -e "/etc/sysconfig/network" ] ; then
+
+  # Give some time for the link to come up before configuring via dhcp
+  grep '^LINKDELAY' /etc/sysconfig/network > /dev/null 2>&1
+  if [ $? != 0 ] ; then
+    echo 'LINKDELAY=60' >> /etc/sysconfig/network
+  fi
+
+  # Persistently try to gain a dhcp address
+  grep '^PERSISTENT_DHCLIENT' /etc/sysconfig/network > /dev/null 2>&1
+  if [ $? != 0 ] ; then
+    echo 'PERSISTENT_DHCLIENT=yes' >> /etc/sysconfig/network
+  fi
+
+fi
