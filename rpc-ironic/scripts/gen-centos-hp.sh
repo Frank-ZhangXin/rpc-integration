@@ -83,7 +83,7 @@ pushd ~/dib
 
 
   # Added for custom element
-  export ELEMENTS_PATH="/root/custom-elements/"
+  export ELEMENTS_PATH="/opt/rpc-integration/rpc-ironic/custom-elements/"
 
   #CentOS 7
   export DIB_RELEASE=7

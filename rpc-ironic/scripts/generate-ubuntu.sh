@@ -113,20 +113,13 @@ pushd ~/dib
   export DIB_CLOUD_INIT_DATASOURCES="Ec2, ConfigDrive, OpenStack"
   export DIB_RELEASE=xenial
   export DISTRO_NAME=ubuntu
-#  make-base-image
+  make-base-image
 
   #Ubuntu Trusty
   export DIB_RELEASE=trusty
   export DISTRO_NAME=ubuntu
- #  make-base-image
-
- # Added for custom element
-  export ELEMENTS_PATH="/root/custom-elements/"
-
-  #CentOS 7
-  export DIB_RELEASE=7
-  export DISTRO_NAME=centos7
   make-base-image
+
 popd
 
 # utility container doesn't have much space...
