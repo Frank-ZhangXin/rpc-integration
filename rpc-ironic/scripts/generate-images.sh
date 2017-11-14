@@ -17,25 +17,25 @@ trap cleanup EXIT
 
 function make-base-image
 {
-disk-image-create -o baremetal-$DISTRO_NAME-$DIB_RELEASE $DISTRO_NAME baremetal bootloader local-config proliant-tools devuser eureka-element
+disk-image-create -o baremetal-$DISTRO_NAME-$DIB_RELEASE $DISTRO_NAME baremetal bootloader dhcp-all-interfaces eureka-element local-config proliant-tools ${DEBUG_USER_ELEMENT:-""}
 
 rm -R *.d/
 scp -o StrictHostKeyChecking=no baremetal-$DISTRO_NAME-$DIB_RELEASE* "${UTILITY01_HOSTNAME}":~/images
 rm baremetal-$DISTRO_NAME-$DIB_RELEASE*  # no reason to keep these around
 
-VMLINUZ_UUID=$(ssh -o StrictHostKeyChecking=no "${UTILITY01_HOSTNAME}" "source ~/openrc; glance image-create --name baremetal-hp-$DISTRO_NAME-$DIB_RELEASE.vmlinuz \
+VMLINUZ_UUID=$(ssh -o StrictHostKeyChecking=no "${UTILITY01_HOSTNAME}" "source ~/openrc; glance image-create --name baremetal-$DISTRO_NAME-$DIB_RELEASE.vmlinuz \
                                     --visibility public \
                                     --disk-format aki \
                                     --property hypervisor_type=baremetal \
                                     --protected=True \
                                     --container-format aki < ~/images/baremetal-$DISTRO_NAME-$DIB_RELEASE.vmlinuz" | awk '/\| id/ {print $4}')
-INITRD_UUID=$(ssh -o StrictHostKeyChecking=no "${UTILITY01_HOSTNAME}" "source ~/openrc; glance image-create --name baremetal-hp-$DISTRO_NAME-$DIB_RELEASE.initrd \
+INITRD_UUID=$(ssh -o StrictHostKeyChecking=no "${UTILITY01_HOSTNAME}" "source ~/openrc; glance image-create --name baremetal-$DISTRO_NAME-$DIB_RELEASE.initrd \
                                    --visibility public \
                                    --disk-format ari \
                                    --property hypervisor_type=baremetal \
                                    --protected=True \
                                    --container-format ari < ~/images/baremetal-$DISTRO_NAME-$DIB_RELEASE.initrd" | awk '/\| id/ {print $4}')
-ssh -o StrictHostKeyChecking=no "${UTILITY01_HOSTNAME}" "source ~/openrc; glance image-create --name baremetal-hp-$DISTRO_NAME-$DIB_RELEASE \
+ssh -o StrictHostKeyChecking=no "${UTILITY01_HOSTNAME}" "source ~/openrc; glance image-create --name baremetal-$DISTRO_NAME-$DIB_RELEASE \
   --visibility public \
   --disk-format qcow2 \
   --container-format bare \
@@ -45,6 +45,8 @@ ssh -o StrictHostKeyChecking=no "${UTILITY01_HOSTNAME}" "source ~/openrc; glance
   --property ramdisk_id=${INITRD_UUID} < ~/images/baremetal-$DISTRO_NAME-$DIB_RELEASE.qcow2"
 }
 
+# install needed binaries
+apt-get install -y kpartx parted qemu-utils
 
 mkdir -p ~/dib
 pushd ~/dib
@@ -80,12 +82,48 @@ pushd ~/dib
   export DIB_DEV_USER_USERNAME=debug-user
   export DIB_DEV_USER_PASSWORD=secrete
   export DIB_DEV_USER_PWDLESS_SUDO=yes
+  # Uncomment the following line to enable a debug user login
+  #export DEBUG_USER_ELEMENT=devuser
 
-
-  # Added for custom element
+  # set up envars for all images
+  export DIB_CLOUD_INIT_DATASOURCES="Ec2, ConfigDrive, OpenStack"
   export ELEMENTS_PATH="/opt/rpc-integration/rpc-ironic/custom-elements/"
 
-  #CentOS 7
+  # set up envars for the deploy image ironic agent
+  # export DIB_HPSSACLI_URL="http://downloads.hpe.com/pub/softlib2/software1/pubsw-linux/p1857046646/v109216/hpssacli-2.30-6.0.x86_64.rpm"
+  export IRONIC_AGENT_VERSION="stable/ocata"
+  # create the deploy image
+  disk-image-create --install-type source -o ironic-deploy ironic-agent ubuntu proliant-tools ${DEBUG_USER_ELEMENT:-""}
+
+  rm ironic-deploy.vmlinuz  # not needed or uploaded
+  rm -R *.d/  # don't need dib dirs
+  scp -o StrictHostKeyChecking=no ironic-deploy* "${UTILITY01_HOSTNAME}":~/images
+  rm ironic-deploy*  # no reason to keep these around
+
+  ssh -o StrictHostKeyChecking=no "${UTILITY01_HOSTNAME}" "source ~/openrc; glance image-create --name ironic-deploy.kernel \
+    --visibility public \
+    --disk-format aki \
+    --property hypervisor_type=baremetal \
+    --protected=True \
+    --container-format aki < ~/images/ironic-deploy.kernel"
+  ssh -o StrictHostKeyChecking=no "${UTILITY01_HOSTNAME}" "source ~/openrc; glance image-create --name ironic-deploy.initramfs \
+    --visibility public \
+    --disk-format ari \
+    --property hypervisor_type=baremetal \
+    --protected=True \
+    --container-format ari < ~/images/ironic-deploy.initramfs"
+
+  # Ubuntu Xenial
+  export DIB_RELEASE=xenial
+  export DISTRO_NAME=ubuntu
+  make-base-image
+
+  # Ubuntu Trusty
+  export DIB_RELEASE=trusty
+  export DISTRO_NAME=ubuntu
+  make-base-image
+
+  # CentOS 7
   export DIB_RELEASE=7
   export DISTRO_NAME=centos7
   make-base-image
