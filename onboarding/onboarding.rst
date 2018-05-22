@@ -11,7 +11,8 @@ the lab environments that we use.
 
 #. Bastions access (pre-req for labs): https://one.rackspace.com/display/rackertools/Next+Gen+Bastions
 
-   #. Request access to the "lnx-cbastion" LDAP group in RackerApp.
+   #. Request access to the ``lnx-cbastion``, ``core-drac-viewer`` and ``core-password-viewer``
+      LDAP groups in RackerApp.
 
    #. SSH Config:
       
