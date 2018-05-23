@@ -18,14 +18,14 @@ On ceph/storage01 node
 On deploy node
 
     cd
-    scp infra01:/opt/ os-deploy-MM-DD-YY.tar .
-    scp storage01:/opt/ ceph-MM-DD-YY.tar .
+    scp infra01:/etc/openstack_deploy/os-deploy-MM-DD-YY.tar .
+    scp storage01:/opt/rpc-ceph/ceph-MM-DD-YY.tar .
 
 # Rekick the Eureka lab
 
 On deploy node:
 
-    ansible-playbook -i /etc/ansible/cobbler_hosts rekick_eureka.yml
+    ansible-playbook -i /etc/ansible/cobbler_hosts /root/rekick_eureka.yml
 
 Check if all hosts are ready:
 
@@ -33,7 +33,7 @@ Check if all hosts are ready:
 
 # Prepare the lab
 
-On deploy node, truncate know_hosts file:
+On deploy node, truncate `known_hosts` file:
         
     echo '' > ~/.ssh/known_hosts
 
@@ -54,11 +54,13 @@ On deploy node, copy ssh keys and hosts files to infra01 and storage01 node:
 On infra01 node, extract backup file:
 
     cd
+    mkdir -p ./openstack_deploy
     tar xvf os-deploy-MM-DD-YY.tar -C ~/openstack_deploy
 
 On storage01 node, extract backup file
 
     cd
+    mkdir -p ./rpc-ceph
     tar xvf ceph-MM-DD-YY.tar -C ~/rpc-ceph
 
 # RPC Openstack deployment
@@ -67,39 +69,58 @@ On infra01 node, clone down RPC-O
 
     git clone -b master https://github.com/rcbops/rpc-openstack.git /opt/rpc-openstack 
 
-Start bootstrap, this will generate /etc/openstack_deploy directory and default configs. 
+On infra01 node, check `pyyaml` if it doesn't exist, install it.
+
+    pip install pyyaml
+
+Start bootstrap, this will generate `/etc/openstack_deploy directory` and default configs. 
 
     /opt/rpc-openstack/scripts/deploy.sh
 
-Replace configs in /etc/openstack_deploy/ with backup files
+Replace configs in `/etc/openstack_deploy/` with backup files
 
-    cp ~/openstack_deploy/user_osa_variables_overrides.yml/ /etc/openstack_deploy/
-    cp ~/openstack_deploy/openstack_user_config.yml/ /etc/openstack_deploy/
+    cp ~/openstack_deploy/user_osa_variables_overrides.yml /etc/openstack_deploy/
+    cp ~/openstack_deploy/openstack_user_config.yml /etc/openstack_deploy/
     cp ~/openstack_deploy/env.d/cinder.yml /etc/openstack_deploy/env.d/
     cp ~/openstack_deploy/env.d/ceph.yml /etc/openstack_deploy/env.d/
     cp /opt/rpc-openstack/etc/openstack_deploy/user_rpco_secrets.yml.example /etc/openstack_deploy/user_rpco_secrets.yml
 
 Generate user secrets (passwords)
 
-    /opt/openstack-ansible/scripts/pw-token-gen.py --file /etc/openstack_deploy/user_rpco_secrets.yml
-    /opt/openstack-ansible/scripts/pw-token-gen.py --file /etc/openstack_deploy/user_secrets.yml
+    python /opt/openstack-ansible/scripts/pw-token-gen.py --file /etc/openstack_deploy/user_rpco_secrets.yml
+    python /opt/openstack-ansible/scripts/pw-token-gen.py --file /etc/openstack_deploy/user_secrets.yml
 
 Ceph deployment would start here, Openstack deployment will continue after Ceph done.
 
 # RPC Ceph deployment
+
+Clone down rpc-ceph
+
+   git clone https://github.com/rcbops/rpc-ceph.git /opt/rpc-ceph 
 
 On storage01 node, copy backup config file to ceph directory
 
     cp ~/rpc-ceph/vars.yml /opt/rpc-ceph/vars.yml
     cp ~/rpc-ceph/inventory.yml /opt/rpc-ceph/inventory.yml
 
-Find and copy down keystone_auth_admin_password on infra01 node `/etc/openstack_deploy/user_secrets.yml`
+Find and copy down `keystone_auth_admin_password` on infra01 node `/etc/openstack_deploy/user_secrets.yml`
 
     keystone_auth_admin_password: <SECRET> 
 
-Then replace keystone_auth_admin_password in storage01 node /opt/rpc-ceph/vars.yml with it
+Then replace `radosgw_keystone_admin_password` in storage01 node /opt/rpc-ceph/vars.yml with it
 
-Prepare disk/device for ceph
+Boostrap ansible
+
+    /opt/rpc-ceph/scripts/bootstrap-ansible.sh
+
+Deploy ceph
+
+    cd /opt/rpc-ceph
+    ceph-ansible-playbook -i inventory.yml playbooks/deploy-ceph.yml -e @vars.yml
+
+If you met disk prepartion error, zapping disk is needed.
+
+Prepare disk/device for ceph.
 
     umount -l /dev/sdc
     umount -l /dev/sdd
@@ -114,9 +135,7 @@ Prepare disk/device for ceph
     ceph-disk zap /dev/sde
     ceph-disk zap /dev/sdf
 
-Deploy ceph
-
-    ceph-ansible-playbook -i inventory.yml deploy-ceph.yml -e @vars.yml
+Then re-run deployment of ceph.
 
 # RPC Openstack deploy cont.
 
@@ -131,10 +150,21 @@ Create and run ceph-rgw-install.yml, which will setup rados gate service endpoin
 
     openstack-ansible ceph-rgw-intall.yml
 
-Create a glance radosgw user in ceph
+Set `rgw_keystone_admin_tenant` and `rgw_keystone_admin_user` with correct value in `/etc/ceph/ceph.conf` on storage01 node
+
+    rgw_keystone_admin_tenant = admin
+    rgw_keystone_admin_user = admin
+
+On storage01 node, create a glance radosgw user in ceph
 (https://github.com/rcbops/rpc-eng-ops/blob/master/docs/source/deployment_plan/rpc_openstack_manual_install.rst#set-up-the-glance-radosgw-user-in-ceph)
-You will need `ironic_swift_temp_url_secret_key` which is in `user_osa_variables_overrides.yml` on infra01 node `/etc/openstack_deploy/`
-and `glance_service_password` which is in `user_secrets.yml` on infra01 node `/etc/openstack_deploy`
+You will need `ironic_swift_temp_url_secret_key` and `glance_service_password` which is in `user_secrets.yml` on infra01 node `/etc/openstack_deploy`
+
+Continue Openstack installation on infra01 node
+
+    cd /opt/openstack-ansible/playbooks
+    openstack-ansible setup-openstack.yml
+    cd /opt/rpc-openstack/playbooks
+    openstack-ansible site-openstack.yml
 
 ## Known issues with misconfiguration
 #### Swift status is 401 error
